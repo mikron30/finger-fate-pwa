@@ -15,12 +15,14 @@
     bottomLeft: { label: "שמאל־למטה", icon: "↙", help: "הקרובה לפינה השמאלית התחתונה" }
   };
 
-  // 00:00–01:00 first; 01:00–02:00 bottom-right; 02:00–03:00 bottom-left;
-  // 03:00–04:00 top-left; 04:00–05:00 top-right; 05:00–06:00 last.
-  // The same six-hour cycle repeats four times each day.
+  // המחזור חוזר ארבע פעמים ביממה:
+  // ראשון, ימין-למטה, שמאל-למטה, שמאל-למעלה, ימין-למעלה, אחרון.
   const HOURLY_CYCLE = ["first", "bottomRight", "bottomLeft", "topLeft", "topRight", "last"];
-  const DOT_COLORS = ["#22d3ee", "#f472b6", "#f59e0b", "#34d399", "#a78bfa", "#fb7185", "#60a5fa", "#facc15", "#2dd4bf", "#c084fc"];
-  const COUNTDOWN_MS = 1900;
+  const DOT_COLORS = ["#7ecb20", "#ff007f", "#00b8f0", "#ffb000", "#9b5de5", "#00c49a", "#f45b69", "#4d96ff", "#ffd60a", "#c77dff"];
+  const MIN_TOUCHES = 2;
+  const WIN_DELAY_MS = 1900;
+  const SETTINGS_HOLD_MS = 5000;
+  const RESET_AFTER_RELEASE_MS = 550;
 
   const els = {
     setupScreen: document.querySelector("#setupScreen"),
@@ -35,20 +37,12 @@
     soundToggle: document.querySelector("#soundToggle"),
     startButton: document.querySelector("#startButton"),
     installButton: document.querySelector("#installButton"),
-    backButton: document.querySelector("#backButton"),
-    resetButton: document.querySelector("#resetButton"),
-    nextRoundButton: document.querySelector("#nextRoundButton"),
-    gameModeText: document.querySelector("#gameModeText"),
+    settingsHintButton: document.querySelector("#settingsHintButton"),
+    helpButton: document.querySelector("#helpButton"),
     touchSurface: document.querySelector("#touchSurface"),
-    instruction: document.querySelector("#instruction"),
-    countdown: document.querySelector("#countdown"),
-    countdownProgress: document.querySelector("#countdownProgress"),
-    touchCount: document.querySelector("#touchCount"),
+    startMessage: document.querySelector("#startMessage"),
     touchLayer: document.querySelector("#touchLayer"),
-    winnerOverlay: document.querySelector("#winnerOverlay"),
-    winnerRuleText: document.querySelector("#winnerRuleText"),
-    winnerGlow: document.querySelector("#winnerGlow"),
-    confetti: document.querySelector("#confetti")
+    winnerFill: document.querySelector("#winnerFill")
   };
 
   const state = {
@@ -58,8 +52,11 @@
     touches: new Map(),
     orderCounter: 0,
     roundLocked: false,
-    countdownStartedAt: 0,
-    countdownFrame: 0,
+    roundHadMultipleTouches: false,
+    winnerTimer: 0,
+    settingsHoldTimer: 0,
+    resetTimer: 0,
+    messageTimer: 0,
     deferredInstallPrompt: null,
     audioContext: null
   };
@@ -124,7 +121,7 @@
   function renderSchedule() {
     els.scheduleTable.innerHTML = "";
     for (let hour = 0; hour < 24; hour += 1) {
-      const mode = HOURLY_CYCLE[hour % 6];
+      const mode = HOURLY_CYCLE[hour % HOURLY_CYCLE.length];
       const row = document.createElement("div");
       row.className = "schedule-row";
       row.dataset.hour = String(hour);
@@ -133,47 +130,60 @@
     }
   }
 
-  function startGame() {
-    resetRound();
-    els.setupScreen.classList.add("hidden");
-    els.gameScreen.classList.remove("hidden");
-    const effective = getEffectiveMode();
-    els.gameModeText.textContent = state.selectedMode === "time"
-      ? `לפי השעה — ${MODE_DEFS[effective].label}`
-      : MODE_DEFS[effective].label;
-    document.documentElement.requestFullscreen?.().catch(() => {});
-  }
-
-  function exitGame() {
-    resetRound();
+  function openSettings() {
+    cancelGameTimers();
+    clearTouches();
+    state.roundLocked = false;
+    state.roundHadMultipleTouches = false;
+    els.winnerFill.classList.add("hidden");
     els.gameScreen.classList.add("hidden");
     els.setupScreen.classList.remove("hidden");
-    document.exitFullscreen?.().catch(() => {});
     updateClockCard();
+    document.exitFullscreen?.().catch(() => {});
   }
 
-  function resetRound() {
-    cancelAnimationFrame(state.countdownFrame);
-    state.touches.clear();
+  function returnToGame() {
+    els.setupScreen.classList.add("hidden");
+    els.gameScreen.classList.remove("hidden");
+    resetRound(true);
+  }
+
+  function resetRound(showInitialMessage = true) {
+    cancelGameTimers();
+    clearTouches();
     state.orderCounter = 0;
     state.roundLocked = false;
-    state.countdownStartedAt = 0;
+    state.roundHadMultipleTouches = false;
+    els.winnerFill.classList.add("hidden");
+    els.winnerFill.style.background = "";
+    if (showInitialMessage) {
+      showMessage("הניחו לפחות 2 אצבעות על המסך");
+    }
+  }
+
+  function cancelGameTimers() {
+    window.clearTimeout(state.winnerTimer);
+    window.clearTimeout(state.settingsHoldTimer);
+    window.clearTimeout(state.resetTimer);
+    state.winnerTimer = 0;
+    state.settingsHoldTimer = 0;
+    state.resetTimer = 0;
+  }
+
+  function clearTouches() {
+    state.touches.forEach((touch) => touch.element?.remove());
+    state.touches.clear();
     els.touchLayer.innerHTML = "";
-    els.confetti.innerHTML = "";
-    els.winnerOverlay.classList.add("hidden");
-    els.countdown.classList.add("hidden");
-    els.instruction.classList.remove("faded");
-    els.countdownProgress.style.strokeDashoffset = "0";
-    const effective = getEffectiveMode();
-    els.gameModeText.textContent = state.selectedMode === "time"
-      ? `לפי השעה — ${MODE_DEFS[effective].label}`
-      : MODE_DEFS[effective].label;
   }
 
   function onPointerDown(event) {
-    if (state.roundLocked || event.pointerType === "mouse" && event.button !== 0) return;
+    if (state.roundLocked || (event.pointerType === "mouse" && event.button !== 0)) return;
     event.preventDefault();
+    event.stopPropagation();
     els.touchSurface.setPointerCapture?.(event.pointerId);
+    window.clearTimeout(state.resetTimer);
+
+    if (state.touches.has(event.pointerId)) return;
 
     const touch = {
       id: event.pointerId,
@@ -183,10 +193,11 @@
       color: DOT_COLORS[(state.orderCounter - 1) % DOT_COLORS.length],
       element: null
     };
+
     touch.element = createTouchDot(touch);
     state.touches.set(event.pointerId, touch);
-    updateTouchUi();
-    restartCountdown();
+    hideMessage();
+    updateRoundTimersAfterTouchChange();
   }
 
   function onPointerMove(event) {
@@ -200,26 +211,60 @@
 
   function onPointerUp(event) {
     const touch = state.touches.get(event.pointerId);
-    if (!touch || state.roundLocked) return;
+    if (!touch) return;
     event.preventDefault();
+    event.stopPropagation();
+
     touch.element?.remove();
     state.touches.delete(event.pointerId);
-    updateTouchUi();
-    if (state.touches.size === 0) {
-      cancelAnimationFrame(state.countdownFrame);
-      state.countdownStartedAt = 0;
-      els.countdown.classList.add("hidden");
-      els.instruction.classList.remove("faded");
-    } else {
-      restartCountdown();
+
+    if (state.roundLocked) {
+      if (state.touches.size === 0) {
+        state.resetTimer = window.setTimeout(() => resetRound(true), RESET_AFTER_RELEASE_MS);
+      }
+      return;
     }
+
+    updateRoundTimersAfterTouchChange();
+  }
+
+  function updateRoundTimersAfterTouchChange() {
+    window.clearTimeout(state.winnerTimer);
+    window.clearTimeout(state.settingsHoldTimer);
+    state.winnerTimer = 0;
+    state.settingsHoldTimer = 0;
+
+    const count = state.touches.size;
+
+    if (count === 0) {
+      state.orderCounter = 0;
+      state.roundHadMultipleTouches = false;
+      showMessage("הניחו לפחות 2 אצבעות על המסך");
+      return;
+    }
+
+    if (count === 1) {
+      if (!state.roundHadMultipleTouches) {
+        state.settingsHoldTimer = window.setTimeout(() => {
+          if (!state.roundLocked && state.touches.size === 1 && !state.roundHadMultipleTouches) {
+            openSettings();
+          }
+        }, SETTINGS_HOLD_MS);
+      } else {
+        showMessage("נדרשות לפחות 2 אצבעות", 1200);
+      }
+      return;
+    }
+
+    state.roundHadMultipleTouches = true;
+    hideMessage();
+    state.winnerTimer = window.setTimeout(chooseWinner, WIN_DELAY_MS);
   }
 
   function createTouchDot(touch) {
     const dot = document.createElement("div");
     dot.className = "touch-dot";
     dot.style.setProperty("--dot-color", touch.color);
-    dot.innerHTML = `<span class="order">${touch.order}</span>`;
     els.touchLayer.appendChild(dot);
     positionTouchDot({ ...touch, element: dot });
     requestAnimationFrame(() => dot.classList.add("visible"));
@@ -232,64 +277,37 @@
     touch.element.style.top = `${touch.y}px`;
   }
 
-  function updateTouchUi() {
-    els.touchCount.textContent = String(state.touches.size);
-    els.instruction.classList.toggle("faded", state.touches.size > 0);
-    els.countdown.classList.toggle("hidden", state.touches.size === 0);
-  }
-
-  function restartCountdown() {
-    cancelAnimationFrame(state.countdownFrame);
-    state.countdownStartedAt = performance.now();
-    els.countdownProgress.style.strokeDashoffset = "0";
-    animateCountdown();
-  }
-
-  function animateCountdown(now = performance.now()) {
-    if (state.roundLocked || state.touches.size === 0) return;
-    const elapsed = now - state.countdownStartedAt;
-    const progress = Math.min(1, elapsed / COUNTDOWN_MS);
-    els.countdownProgress.style.strokeDashoffset = String(327 * progress);
-    if (progress >= 1) {
-      chooseWinner();
-      return;
-    }
-    state.countdownFrame = requestAnimationFrame(animateCountdown);
-  }
-
   function chooseWinner() {
-    if (state.roundLocked || state.touches.size === 0) return;
-    state.roundLocked = true;
+    if (state.roundLocked || state.touches.size < MIN_TOUCHES) return;
+
     const mode = getEffectiveMode();
     const candidates = [...state.touches.values()];
     const winner = pickWinner(candidates, mode);
     if (!winner) return;
 
-    candidates.forEach((candidate) => {
-      if (candidate.id !== winner.id) candidate.element.style.opacity = ".18";
-    });
-    winner.element.classList.add("winner");
-    els.countdown.classList.add("hidden");
-    els.winnerRuleText.textContent = MODE_DEFS[mode].label;
-    els.winnerGlow.style.background = `radial-gradient(circle at ${winner.x}px ${winner.y}px, ${winner.color}55, transparent 42%)`;
-    els.winnerOverlay.classList.remove("hidden");
-    makeConfetti(winner.color);
+    state.roundLocked = true;
+    window.clearTimeout(state.settingsHoldTimer);
+    window.clearTimeout(state.winnerTimer);
+    hideMessage();
+
+    els.winnerFill.style.background = winner.color;
+    els.winnerFill.classList.remove("hidden");
     playWinFeedback();
   }
 
   function pickWinner(candidates, mode) {
     const reduceBy = (score) => candidates.reduce((best, item) => score(item) < score(best) ? item : best);
     switch (mode) {
-      case "first": return reduceBy((t) => t.order);
-      case "last": return reduceBy((t) => -t.order);
-      case "rightmost": return reduceBy((t) => -t.x);
-      case "leftmost": return reduceBy((t) => t.x);
-      case "topmost": return reduceBy((t) => t.y);
-      case "bottommost": return reduceBy((t) => -t.y);
-      case "topRight": return reduceBy((t) => distance(t.x, t.y, window.innerWidth, 0));
-      case "topLeft": return reduceBy((t) => distance(t.x, t.y, 0, 0));
-      case "bottomRight": return reduceBy((t) => distance(t.x, t.y, window.innerWidth, window.innerHeight));
-      case "bottomLeft": return reduceBy((t) => distance(t.x, t.y, 0, window.innerHeight));
+      case "first": return reduceBy((touch) => touch.order);
+      case "last": return reduceBy((touch) => -touch.order);
+      case "rightmost": return reduceBy((touch) => -touch.x);
+      case "leftmost": return reduceBy((touch) => touch.x);
+      case "topmost": return reduceBy((touch) => touch.y);
+      case "bottommost": return reduceBy((touch) => -touch.y);
+      case "topRight": return reduceBy((touch) => distance(touch.x, touch.y, window.innerWidth, 0));
+      case "topLeft": return reduceBy((touch) => distance(touch.x, touch.y, 0, 0));
+      case "bottomRight": return reduceBy((touch) => distance(touch.x, touch.y, window.innerWidth, window.innerHeight));
+      case "bottomLeft": return reduceBy((touch) => distance(touch.x, touch.y, 0, window.innerHeight));
       default: return candidates[0];
     }
   }
@@ -298,50 +316,60 @@
     return Math.hypot(x1 - x2, y1 - y2);
   }
 
-  function makeConfetti(primaryColor) {
-    const colors = [primaryColor, "#22d3ee", "#f472b6", "#facc15", "#a78bfa", "#34d399"];
-    els.confetti.innerHTML = "";
-    for (let i = 0; i < 34; i += 1) {
-      const piece = document.createElement("i");
-      piece.className = "confetti-piece";
-      piece.style.left = `${Math.random() * 100}%`;
-      piece.style.background = colors[i % colors.length];
-      piece.style.animationDelay = `${Math.random() * .35}s`;
-      piece.style.animationDuration = `${1.25 + Math.random() * 1.1}s`;
-      piece.style.setProperty("--drift", `${-90 + Math.random() * 180}px`);
-      els.confetti.appendChild(piece);
+  function showMessage(text, duration = 0) {
+    window.clearTimeout(state.messageTimer);
+    els.startMessage.textContent = text;
+    els.startMessage.classList.remove("hidden");
+    if (duration > 0) {
+      state.messageTimer = window.setTimeout(hideMessage, duration);
     }
+  }
+
+  function hideMessage() {
+    window.clearTimeout(state.messageTimer);
+    els.startMessage.classList.add("hidden");
   }
 
   function playWinFeedback() {
     if (state.vibration && navigator.vibrate) navigator.vibrate([80, 55, 170]);
     if (!state.sound) return;
+
     try {
       state.audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
-      const ctx = state.audioContext;
-      const start = ctx.currentTime;
+      const context = state.audioContext;
+      const start = context.currentTime;
       [523.25, 659.25, 783.99].forEach((frequency, index) => {
-        const oscillator = ctx.createOscillator();
-        const gain = ctx.createGain();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
         oscillator.type = "sine";
         oscillator.frequency.value = frequency;
-        gain.gain.setValueAtTime(0.0001, start + index * .11);
-        gain.gain.exponentialRampToValueAtTime(.18, start + index * .11 + .02);
-        gain.gain.exponentialRampToValueAtTime(.0001, start + index * .11 + .24);
-        oscillator.connect(gain).connect(ctx.destination);
-        oscillator.start(start + index * .11);
-        oscillator.stop(start + index * .11 + .26);
+        gain.gain.setValueAtTime(0.0001, start + index * 0.11);
+        gain.gain.exponentialRampToValueAtTime(0.18, start + index * 0.11 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.11 + 0.24);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(start + index * 0.11);
+        oscillator.stop(start + index * 0.11 + 0.26);
       });
     } catch (_) {
-      // Sound is optional; ignore unsupported browsers.
+      // הצליל אופציונלי; דפדפנים שאינם תומכים פשוט ממשיכים בלי צליל.
     }
   }
 
   function bindEvents() {
-    els.startButton.addEventListener("click", startGame);
-    els.backButton.addEventListener("click", exitGame);
-    els.resetButton.addEventListener("click", resetRound);
-    els.nextRoundButton.addEventListener("click", resetRound);
+    els.startButton.addEventListener("click", returnToGame);
+
+    // לחיצה רגילה אינה פותחת את ההגדרות, כדי שהן יישארו נסתרות.
+    els.settingsHintButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showMessage("להגדרות: החזק אצבע אחת על המסך 5 שניות", 2200);
+    });
+
+    els.helpButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showMessage("הניחו 2 אצבעות או יותר והשאירו אותן על המסך", 2200);
+    });
 
     els.touchSurface.addEventListener("pointerdown", onPointerDown, { passive: false });
     els.touchSurface.addEventListener("pointermove", onPointerMove, { passive: false });
@@ -351,10 +379,12 @@
 
     els.vibrationToggle.checked = state.vibration;
     els.soundToggle.checked = state.sound;
+
     els.vibrationToggle.addEventListener("change", () => {
       state.vibration = els.vibrationToggle.checked;
       localStorage.setItem("fingerFateVibration", String(state.vibration));
     });
+
     els.soundToggle.addEventListener("change", () => {
       state.sound = els.soundToggle.checked;
       localStorage.setItem("fingerFateSound", String(state.sound));
@@ -365,6 +395,7 @@
       state.deferredInstallPrompt = event;
       els.installButton.classList.remove("hidden");
     });
+
     els.installButton.addEventListener("click", async () => {
       if (!state.deferredInstallPrompt) return;
       state.deferredInstallPrompt.prompt();
@@ -372,13 +403,23 @@
       state.deferredInstallPrompt = null;
       els.installButton.classList.add("hidden");
     });
+
     window.addEventListener("appinstalled", () => els.installButton.classList.add("hidden"));
+    window.addEventListener("blur", () => {
+      if (!els.gameScreen.classList.contains("hidden")) resetRound(true);
+    });
   }
 
   function registerServiceWorker() {
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
-    }
+    if (!("serviceWorker" in navigator)) return;
+    window.addEventListener("load", async () => {
+      try {
+        const registration = await navigator.serviceWorker.register("./sw.js");
+        registration.update();
+      } catch (_) {
+        // האפליקציה עדיין פועלת גם ללא Service Worker.
+      }
+    });
   }
 
   renderModeGrid();
@@ -386,5 +427,6 @@
   updateClockCard();
   bindEvents();
   registerServiceWorker();
-  setInterval(updateClockCard, 15_000);
+  resetRound(true);
+  window.setInterval(updateClockCard, 15_000);
 })();

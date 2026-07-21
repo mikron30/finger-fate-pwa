@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <meta name="theme-color" content="#111827" />
+  <meta name="theme-color" content="#080808" />
   <meta name="description" content="אפליקציית בחירת אצבעות עם כללי זכייה ידועים מראש." />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
@@ -13,12 +13,32 @@
 </head>
 <body>
   <main id="app">
-    <section id="setupScreen" class="screen setup-screen" aria-label="הגדרות משחק">
+    <!-- מסך המשחק מוצג מיד עם פתיחת האפליקציה. -->
+    <section id="gameScreen" class="screen game-screen" aria-label="מסך משחק">
+      <button id="settingsHintButton" class="corner-button settings-hint-button" type="button" aria-label="הגדרות">⚙</button>
+      <button id="helpButton" class="corner-button help-button" type="button" aria-label="עזרה">?</button>
+
+      <div id="touchSurface" class="touch-surface">
+        <div id="startMessage" class="start-message" aria-live="polite">
+          הניחו לפחות 2 אצבעות על המסך
+        </div>
+
+        <div id="touchLayer" class="touch-layer" aria-hidden="true"></div>
+
+        <!-- בסיום אין מלל או כפתורים: רק צבע הזוכה על כל המסך. -->
+        <div id="winnerFill" class="winner-fill hidden" aria-hidden="true"></div>
+
+        <div class="version-label">Finger Fate 2</div>
+      </div>
+    </section>
+
+    <!-- מסך ההגדרות נסתר ונפתח רק לאחר החזקת אצבע אחת במשך 5 שניות. -->
+    <section id="setupScreen" class="screen setup-screen hidden" aria-label="הגדרות משחק">
       <header class="brand">
         <img src="icons/icon.svg" alt="" class="brand-icon" />
         <div>
           <h1>Finger Fate</h1>
-          <p>בחירת אצבעות לפי כלל ידוע מראש</p>
+          <p>הגדרות בחירת הזוכה</p>
         </div>
       </header>
 
@@ -62,50 +82,10 @@
         </label>
       </section>
 
-      <button id="startButton" class="primary-button" type="button">התחל סבב</button>
+      <button id="startButton" class="primary-button" type="button">שמור וחזור למשחק</button>
       <button id="installButton" class="secondary-button hidden" type="button">התקן כאפליקציה בטלפון</button>
 
-      <p class="privacy-note">הכול פועל במכשיר בלבד. אין הרשמה ואין שליחת מידע.</p>
-    </section>
-
-    <section id="gameScreen" class="screen game-screen hidden" aria-label="מסך משחק">
-      <div class="game-topbar">
-        <button id="backButton" class="icon-button" type="button" aria-label="חזרה להגדרות">✕</button>
-        <div class="game-mode-label">
-          <small>מצב נבחר</small>
-          <strong id="gameModeText"></strong>
-        </div>
-        <button id="resetButton" class="icon-button" type="button" aria-label="איפוס סבב">↻</button>
-      </div>
-
-      <div id="touchSurface" class="touch-surface">
-        <div id="instruction" class="instruction">
-          <div class="finger-mark">✦</div>
-          <h2>הניחו אצבעות על המסך</h2>
-          <p>השאירו אותן במקום עד בחירת הזוכה</p>
-        </div>
-
-        <div id="countdown" class="countdown hidden" aria-live="polite">
-          <svg viewBox="0 0 120 120" aria-hidden="true">
-            <circle class="countdown-track" cx="60" cy="60" r="52"></circle>
-            <circle id="countdownProgress" class="countdown-progress" cx="60" cy="60" r="52"></circle>
-          </svg>
-          <strong id="touchCount">1</strong>
-          <small>אצבעות</small>
-        </div>
-
-        <div id="touchLayer" class="touch-layer" aria-hidden="true"></div>
-
-        <div id="winnerOverlay" class="winner-overlay hidden" aria-live="assertive">
-          <div id="winnerGlow" class="winner-glow"></div>
-          <div class="winner-card">
-            <span class="winner-kicker">הזוכה הוא</span>
-            <strong id="winnerRuleText"></strong>
-            <button id="nextRoundButton" class="primary-button" type="button">סבב נוסף</button>
-          </div>
-          <div id="confetti" class="confetti" aria-hidden="true"></div>
-        </div>
-      </div>
+      <p class="privacy-note">כדי לפתוח שוב את ההגדרות: החזק אצבע אחת על מסך המשחק במשך 5 שניות.</p>
     </section>
   </main>
 
