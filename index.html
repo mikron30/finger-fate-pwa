@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
   <meta name="theme-color" content="#080808" />
-  <meta name="description" content="אפליקציית בחירת אצבעות עם כללי זכייה ידועים מראש." />
+  <meta name="description" content="אפליקציית בחירת זוכה בין כמה אצבעות, עם כלל ידוע מראש." />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -13,9 +13,10 @@
 </head>
 <body>
   <main id="app">
-    <!-- מסך המשחק מוצג מיד עם פתיחת האפליקציה. -->
     <section id="gameScreen" class="screen game-screen" aria-label="מסך משחק">
-      <button id="settingsHintButton" class="corner-button settings-hint-button" type="button" aria-label="הגדרות">⚙</button>
+      <button id="settingsHintButton" class="corner-button brand-button" type="button" aria-label="הסבר על פתיחת ההגדרות">
+        <span class="brand-mark" aria-hidden="true">⌁</span>
+      </button>
       <button id="helpButton" class="corner-button help-button" type="button" aria-label="עזרה">?</button>
 
       <div id="touchSurface" class="touch-surface">
@@ -25,14 +26,18 @@
 
         <div id="touchLayer" class="touch-layer" aria-hidden="true"></div>
 
-        <!-- בסיום אין מלל או כפתורים: רק צבע הזוכה על כל המסך. -->
-        <div id="winnerFill" class="winner-fill hidden" aria-hidden="true"></div>
+        <div id="winnerFill" class="winner-fill hidden" aria-hidden="true">
+          <div id="winnerMarker" class="winner-marker">
+            <span class="winner-ring winner-ring-outer"></span>
+            <span class="winner-ring winner-ring-inner"></span>
+            <span class="winner-center"></span>
+          </div>
+        </div>
 
-        <div class="version-label">Finger Fate 2</div>
+        <div class="version-label">Finger Fate 3</div>
       </div>
     </section>
 
-    <!-- מסך ההגדרות נסתר ונפתח רק לאחר החזקת אצבע אחת במשך 5 שניות. -->
     <section id="setupScreen" class="screen setup-screen hidden" aria-label="הגדרות משחק">
       <header class="brand">
         <img src="icons/icon.svg" alt="" class="brand-icon" />
@@ -85,7 +90,7 @@
       <button id="startButton" class="primary-button" type="button">שמור וחזור למשחק</button>
       <button id="installButton" class="secondary-button hidden" type="button">התקן כאפליקציה בטלפון</button>
 
-      <p class="privacy-note">כדי לפתוח שוב את ההגדרות: החזק אצבע אחת על מסך המשחק במשך 5 שניות.</p>
+      <p class="privacy-note">לפתיחת ההגדרות שוב: החזק אצבע אחת בלבד במסך המשחק במשך 5 שניות.</p>
     </section>
   </main>
 

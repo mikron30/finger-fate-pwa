@@ -15,14 +15,26 @@
     bottomLeft: { label: "שמאל־למטה", icon: "↙", help: "הקרובה לפינה השמאלית התחתונה" }
   };
 
-  // המחזור חוזר ארבע פעמים ביממה:
-  // ראשון, ימין-למטה, שמאל-למטה, שמאל-למעלה, ימין-למעלה, אחרון.
   const HOURLY_CYCLE = ["first", "bottomRight", "bottomLeft", "topLeft", "topRight", "last"];
-  const DOT_COLORS = ["#7ecb20", "#ff007f", "#00b8f0", "#ffb000", "#9b5de5", "#00c49a", "#f45b69", "#4d96ff", "#ffd60a", "#c77dff"];
+  const DOT_COLORS = [
+    "#2fb9c9",
+    "#ed31b7",
+    "#84c835",
+    "#ffbd24",
+    "#8365e8",
+    "#2dcf99",
+    "#f65b68",
+    "#4d96ff",
+    "#f58220",
+    "#b765e8"
+  ];
+
   const MIN_TOUCHES = 2;
-  const WIN_DELAY_MS = 1900;
+  const WIN_DELAY_MS = 2550;
+  const LOSER_SHRINK_MS = 330;
   const SETTINGS_HOLD_MS = 5000;
-  const RESET_AFTER_RELEASE_MS = 550;
+  const RESET_AFTER_RELEASE_MS = 520;
+  const RESET_FADE_MS = 280;
 
   const els = {
     setupScreen: document.querySelector("#setupScreen"),
@@ -42,7 +54,8 @@
     touchSurface: document.querySelector("#touchSurface"),
     startMessage: document.querySelector("#startMessage"),
     touchLayer: document.querySelector("#touchLayer"),
-    winnerFill: document.querySelector("#winnerFill")
+    winnerFill: document.querySelector("#winnerFill"),
+    winnerMarker: document.querySelector("#winnerMarker")
   };
 
   const state = {
@@ -53,12 +66,15 @@
     orderCounter: 0,
     roundLocked: false,
     roundHadMultipleTouches: false,
+    winnerPointerId: null,
     winnerTimer: 0,
+    revealTimer: 0,
     settingsHoldTimer: 0,
     resetTimer: 0,
     messageTimer: 0,
     deferredInstallPrompt: null,
-    audioContext: null
+    audioContext: null,
+    reloadingForWorker: false
   };
 
   function getHourMode(date = new Date()) {
@@ -135,7 +151,8 @@
     clearTouches();
     state.roundLocked = false;
     state.roundHadMultipleTouches = false;
-    els.winnerFill.classList.add("hidden");
+    state.winnerPointerId = null;
+    hideWinnerImmediately();
     els.gameScreen.classList.add("hidden");
     els.setupScreen.classList.remove("hidden");
     updateClockCard();
@@ -154,18 +171,19 @@
     state.orderCounter = 0;
     state.roundLocked = false;
     state.roundHadMultipleTouches = false;
-    els.winnerFill.classList.add("hidden");
-    els.winnerFill.style.background = "";
-    if (showInitialMessage) {
-      showMessage("הניחו לפחות 2 אצבעות על המסך");
-    }
+    state.winnerPointerId = null;
+    els.gameScreen.classList.remove("playing");
+    hideWinnerImmediately();
+    if (showInitialMessage) showMessage("הניחו לפחות 2 אצבעות על המסך");
   }
 
   function cancelGameTimers() {
     window.clearTimeout(state.winnerTimer);
+    window.clearTimeout(state.revealTimer);
     window.clearTimeout(state.settingsHoldTimer);
     window.clearTimeout(state.resetTimer);
     state.winnerTimer = 0;
+    state.revealTimer = 0;
     state.settingsHoldTimer = 0;
     state.resetTimer = 0;
   }
@@ -196,17 +214,22 @@
 
     touch.element = createTouchDot(touch);
     state.touches.set(event.pointerId, touch);
+    els.gameScreen.classList.add("playing");
     hideMessage();
     updateRoundTimersAfterTouchChange();
   }
 
   function onPointerMove(event) {
     const touch = state.touches.get(event.pointerId);
-    if (!touch || state.roundLocked) return;
+    if (!touch) return;
     event.preventDefault();
     touch.x = event.clientX;
     touch.y = event.clientY;
     positionTouchDot(touch);
+
+    if (state.roundLocked && event.pointerId === state.winnerPointerId) {
+      updateWinnerPosition(touch);
+    }
   }
 
   function onPointerUp(event) {
@@ -219,9 +242,7 @@
     state.touches.delete(event.pointerId);
 
     if (state.roundLocked) {
-      if (state.touches.size === 0) {
-        state.resetTimer = window.setTimeout(() => resetRound(true), RESET_AFTER_RELEASE_MS);
-      }
+      if (state.touches.size === 0) scheduleWinnerReset();
       return;
     }
 
@@ -239,25 +260,26 @@
     if (count === 0) {
       state.orderCounter = 0;
       state.roundHadMultipleTouches = false;
+      els.gameScreen.classList.remove("playing");
       showMessage("הניחו לפחות 2 אצבעות על המסך");
       return;
     }
 
     if (count === 1) {
+      stopTouchProgress();
       if (!state.roundHadMultipleTouches) {
         state.settingsHoldTimer = window.setTimeout(() => {
           if (!state.roundLocked && state.touches.size === 1 && !state.roundHadMultipleTouches) {
             openSettings();
           }
         }, SETTINGS_HOLD_MS);
-      } else {
-        showMessage("נדרשות לפחות 2 אצבעות", 1200);
       }
       return;
     }
 
     state.roundHadMultipleTouches = true;
     hideMessage();
+    restartTouchProgress();
     state.winnerTimer = window.setTimeout(chooseWinner, WIN_DELAY_MS);
   }
 
@@ -265,6 +287,14 @@
     const dot = document.createElement("div");
     dot.className = "touch-dot";
     dot.style.setProperty("--dot-color", touch.color);
+    dot.style.setProperty("--round-duration", `${WIN_DELAY_MS}ms`);
+    dot.innerHTML = `
+      <svg class="touch-progress" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="touch-progress-track" cx="60" cy="60" r="51"></circle>
+        <circle class="touch-progress-value" cx="60" cy="60" r="51"></circle>
+      </svg>
+      <span class="touch-core"><span class="touch-center"></span></span>
+    `;
     els.touchLayer.appendChild(dot);
     positionTouchDot({ ...touch, element: dot });
     requestAnimationFrame(() => dot.classList.add("visible"));
@@ -277,22 +307,82 @@
     touch.element.style.top = `${touch.y}px`;
   }
 
+  function restartTouchProgress() {
+    state.touches.forEach((touch) => {
+      const dot = touch.element;
+      if (!dot) return;
+      dot.classList.remove("counting", "is-loser", "is-winner");
+      void dot.offsetWidth;
+      dot.classList.add("counting");
+    });
+  }
+
+  function stopTouchProgress() {
+    state.touches.forEach((touch) => touch.element?.classList.remove("counting"));
+  }
+
   function chooseWinner() {
     if (state.roundLocked || state.touches.size < MIN_TOUCHES) return;
 
-    const mode = getEffectiveMode();
     const candidates = [...state.touches.values()];
-    const winner = pickWinner(candidates, mode);
+    const winner = pickWinner(candidates, getEffectiveMode());
     if (!winner) return;
 
     state.roundLocked = true;
+    state.winnerPointerId = winner.id;
     window.clearTimeout(state.settingsHoldTimer);
     window.clearTimeout(state.winnerTimer);
     hideMessage();
 
-    els.winnerFill.style.background = winner.color;
-    els.winnerFill.classList.remove("hidden");
+    candidates.forEach((candidate) => {
+      candidate.element?.classList.remove("counting");
+      candidate.element?.classList.add(candidate.id === winner.id ? "is-winner" : "is-loser");
+    });
+
+    playSelectionTick();
+    state.revealTimer = window.setTimeout(() => revealWinner(winner), LOSER_SHRINK_MS);
+  }
+
+  function revealWinner(winner) {
+    updateWinnerPosition(winner);
+    const radius = farthestCornerDistance(winner.x, winner.y) + 80;
+    els.winnerFill.style.setProperty("--winner-color", winner.color);
+    els.winnerFill.style.setProperty("--winner-radius", `${radius}px`);
+    els.winnerFill.classList.remove("hidden", "depart", "reveal");
+    void els.winnerFill.offsetWidth;
+    els.winnerFill.classList.add("reveal");
     playWinFeedback();
+  }
+
+  function updateWinnerPosition(touch) {
+    els.winnerFill.style.setProperty("--winner-x", `${touch.x}px`);
+    els.winnerFill.style.setProperty("--winner-y", `${touch.y}px`);
+  }
+
+  function farthestCornerDistance(x, y) {
+    return Math.max(
+      distance(x, y, 0, 0),
+      distance(x, y, window.innerWidth, 0),
+      distance(x, y, 0, window.innerHeight),
+      distance(x, y, window.innerWidth, window.innerHeight)
+    );
+  }
+
+  function scheduleWinnerReset() {
+    window.clearTimeout(state.resetTimer);
+    state.resetTimer = window.setTimeout(() => {
+      els.winnerFill.classList.add("depart");
+      window.setTimeout(() => resetRound(true), RESET_FADE_MS);
+    }, RESET_AFTER_RELEASE_MS);
+  }
+
+  function hideWinnerImmediately() {
+    els.winnerFill.classList.add("hidden");
+    els.winnerFill.classList.remove("reveal", "depart");
+    els.winnerFill.style.removeProperty("--winner-color");
+    els.winnerFill.style.removeProperty("--winner-radius");
+    els.winnerFill.style.removeProperty("--winner-x");
+    els.winnerFill.style.removeProperty("--winner-y");
   }
 
   function pickWinner(candidates, mode) {
@@ -319,7 +409,7 @@
   function showMessage(text, duration = 0) {
     window.clearTimeout(state.messageTimer);
     els.startMessage.textContent = text;
-    els.startMessage.classList.remove("hidden");
+    els.startMessage.classList.remove("hidden", "hidden-message");
     if (duration > 0) {
       state.messageTimer = window.setTimeout(hideMessage, duration);
     }
@@ -327,48 +417,73 @@
 
   function hideMessage() {
     window.clearTimeout(state.messageTimer);
-    els.startMessage.classList.add("hidden");
+    els.startMessage.classList.add("hidden-message");
+  }
+
+  function getAudioContext() {
+    state.audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (state.audioContext.state === "suspended") state.audioContext.resume().catch(() => {});
+    return state.audioContext;
+  }
+
+  function playSelectionTick() {
+    if (!state.sound) return;
+    try {
+      const context = getAudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const now = context.currentTime;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(620, now);
+      oscillator.frequency.exponentialRampToValueAtTime(780, now + 0.13);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.18);
+    } catch (_) {
+      // הצליל אופציונלי.
+    }
   }
 
   function playWinFeedback() {
-    if (state.vibration && navigator.vibrate) navigator.vibrate([80, 55, 170]);
+    if (state.vibration && navigator.vibrate) navigator.vibrate([65, 45, 140]);
     if (!state.sound) return;
 
     try {
-      state.audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
-      const context = state.audioContext;
+      const context = getAudioContext();
       const start = context.currentTime;
       [523.25, 659.25, 783.99].forEach((frequency, index) => {
         const oscillator = context.createOscillator();
         const gain = context.createGain();
         oscillator.type = "sine";
         oscillator.frequency.value = frequency;
-        gain.gain.setValueAtTime(0.0001, start + index * 0.11);
-        gain.gain.exponentialRampToValueAtTime(0.18, start + index * 0.11 + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.11 + 0.24);
+        gain.gain.setValueAtTime(0.0001, start + index * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.13, start + index * 0.09 + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.09 + 0.22);
         oscillator.connect(gain).connect(context.destination);
-        oscillator.start(start + index * 0.11);
-        oscillator.stop(start + index * 0.11 + 0.26);
+        oscillator.start(start + index * 0.09);
+        oscillator.stop(start + index * 0.09 + 0.24);
       });
     } catch (_) {
-      // הצליל אופציונלי; דפדפנים שאינם תומכים פשוט ממשיכים בלי צליל.
+      // הצליל אופציונלי.
     }
   }
 
   function bindEvents() {
     els.startButton.addEventListener("click", returnToGame);
 
-    // לחיצה רגילה אינה פותחת את ההגדרות, כדי שהן יישארו נסתרות.
     els.settingsHintButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      showMessage("להגדרות: החזק אצבע אחת על המסך 5 שניות", 2200);
+      showMessage("להגדרות: החזק אצבע אחת בלבד במשך 5 שניות", 2300);
     });
 
     els.helpButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      showMessage("הניחו 2 אצבעות או יותר והשאירו אותן על המסך", 2200);
+      showMessage("הניחו 2 אצבעות או יותר והשאירו אותן עד לבחירה", 2300);
     });
 
     els.touchSurface.addEventListener("pointerdown", onPointerDown, { passive: false });
@@ -416,6 +531,11 @@
       try {
         const registration = await navigator.serviceWorker.register("./sw.js");
         registration.update();
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (state.reloadingForWorker) return;
+          state.reloadingForWorker = true;
+          window.location.reload();
+        });
       } catch (_) {
         // האפליקציה עדיין פועלת גם ללא Service Worker.
       }

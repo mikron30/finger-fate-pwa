@@ -1,4 +1,4 @@
-const CACHE_NAME = "finger-fate-v2";
+const CACHE_NAME = "finger-fate-v3-20260721";
 const ASSETS = [
   "./",
   "./index.html",
