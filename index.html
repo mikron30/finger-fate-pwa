@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="description" content="אפליקציית בחירת אצבעות עם כללי זכייה ידועים מראש." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Finger Fate</title>
+</head>
+<body>
+  <main id="app">
+    <section id="setupScreen" class="screen setup-screen" aria-label="הגדרות משחק">
+      <header class="brand">
+        <img src="icons/icon.svg" alt="" class="brand-icon" />
+        <div>
+          <h1>Finger Fate</h1>
+          <p>בחירת אצבעות לפי כלל ידוע מראש</p>
+        </div>
+      </header>
+
+      <section class="time-card" aria-live="polite">
+        <div>
+          <span class="eyebrow">הכלל הפעיל לפי השעה</span>
+          <strong id="clockText">--:--</strong>
+        </div>
+        <div class="active-rule">
+          <span id="activeRuleIcon" aria-hidden="true">◉</span>
+          <div>
+            <small id="activeRangeText">00:00–01:00</small>
+            <b id="activeRuleText">הראשון שמניח אצבע</b>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-title">
+          <h2>בחר מצב זכייה</h2>
+          <span>נשמר אוטומטית</span>
+        </div>
+        <div id="modeGrid" class="mode-grid" role="radiogroup" aria-label="מצב זכייה"></div>
+      </section>
+
+      <details class="schedule-panel">
+        <summary>לוח הזכייה לפי שעות</summary>
+        <div id="scheduleTable" class="schedule-table"></div>
+      </details>
+
+      <section class="options-row" aria-label="אפשרויות">
+        <label class="switch-row">
+          <span>רטט בזכייה</span>
+          <input id="vibrationToggle" type="checkbox" checked />
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+        <label class="switch-row">
+          <span>צליל בזכייה</span>
+          <input id="soundToggle" type="checkbox" checked />
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+      </section>
+
+      <button id="startButton" class="primary-button" type="button">התחל סבב</button>
+      <button id="installButton" class="secondary-button hidden" type="button">התקן כאפליקציה בטלפון</button>
+
+      <p class="privacy-note">הכול פועל במכשיר בלבד. אין הרשמה ואין שליחת מידע.</p>
+    </section>
+
+    <section id="gameScreen" class="screen game-screen hidden" aria-label="מסך משחק">
+      <div class="game-topbar">
+        <button id="backButton" class="icon-button" type="button" aria-label="חזרה להגדרות">✕</button>
+        <div class="game-mode-label">
+          <small>מצב נבחר</small>
+          <strong id="gameModeText"></strong>
+        </div>
+        <button id="resetButton" class="icon-button" type="button" aria-label="איפוס סבב">↻</button>
+      </div>
+
+      <div id="touchSurface" class="touch-surface">
+        <div id="instruction" class="instruction">
+          <div class="finger-mark">✦</div>
+          <h2>הניחו אצבעות על המסך</h2>
+          <p>השאירו אותן במקום עד בחירת הזוכה</p>
+        </div>
+
+        <div id="countdown" class="countdown hidden" aria-live="polite">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="countdown-track" cx="60" cy="60" r="52"></circle>
+            <circle id="countdownProgress" class="countdown-progress" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <strong id="touchCount">1</strong>
+          <small>אצבעות</small>
+        </div>
+
+        <div id="touchLayer" class="touch-layer" aria-hidden="true"></div>
+
+        <div id="winnerOverlay" class="winner-overlay hidden" aria-live="assertive">
+          <div id="winnerGlow" class="winner-glow"></div>
+          <div class="winner-card">
+            <span class="winner-kicker">הזוכה הוא</span>
+            <strong id="winnerRuleText"></strong>
+            <button id="nextRoundButton" class="primary-button" type="button">סבב נוסף</button>
+          </div>
+          <div id="confetti" class="confetti" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
